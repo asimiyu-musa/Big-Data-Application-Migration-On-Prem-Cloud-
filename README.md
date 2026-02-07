@@ -1,181 +1,170 @@
+# Data Engineering – Moving Big Data Predict  
+**Explore Data Science Academy** | February 2026
 
-# Big Data Application Migration: On-Premises → Cloud
+![AWS Data Pipeline Banner](https://example.com/placeholder-banner.png)  
+*(Placeholder for a banner image representing AWS data pipeline architecture. Replace with a relevant image from AWS documentation or stock photos.)*
 
-📦 Enterprise-grade migration of a large-scale data warehouse from legacy on-prem infrastructure to a modern cloud-native platform.
+## Project Overview
 
-This project outlines a structured, low-risk strategy emphasising **scalability**, **performance**, **cost efficiency**, **data integrity**, and **business continuity**.
+This repository documents the implementation of an event-driven data pipeline for migrating stock market data from on-premises to AWS cloud. The pipeline handles batch processing of CSV files containing historical stock data for 1000 companies over 10 years, focusing on a subset for top companies.
 
-## 🎯 Objectives
+As a data engineer, the goal was to build a robust ETL (Extract, Transform, Load) pipeline using Apache Airflow (containerized with Docker) on AWS EC2, integrating services like S3, RDS (PostgreSQL), SNS, and Lambda for automation and monitoring.
 
-- Reduce dependency on physical hardware and maintenance overhead
-- Achieve elastic scalability for growing data volumes
-- Unlock cloud-native analytics, ML, and BI capabilities
-- Ensure near-zero data loss and schema fidelity
-- Maintain high availability during transition
-- Deliver faster queries and operational flexibility
+The pipeline is designed for:
+- **Ingesting** up to 1000 small CSV files (<1MB each) per run.
+- **Processing** and transforming data into a single CSV.
+- **Loading** into a PostgreSQL table on RDS.
+- **Notifying** success/failure via email (SNS).
+- **Triggering** automatically on S3 file upload events (via Lambda).
 
-## 🏢 Business Context & Challenges Addressed
+No scaling assumptions are made, as per requirements (no concurrent runs, invocations ≤1/day).
 
-Legacy on-premises data warehouses commonly suffer from:
+### Key Technologies & Services
+- **Orchestration**: Apache Airflow (Dockerized on EC2)
+- **Storage**: Amazon S3 (source and monitored buckets)
+- **Compute**: Amazon EC2 (t2.medium with custom AMI)
+- **Database**: Amazon RDS (PostgreSQL db.t3.micro)
+- **Notifications**: Amazon SNS
+- **Automation**: AWS Lambda (event-triggered)
+- **Processing**: Python (Pandas), SQL, Bash scripts
+- **Mounting**: S3FS-Fuse for S3 access on EC2
 
-- High CapEx and maintenance costs
-- Limited vertical scalability
-- Performance bottlenecks during peak loads
-- Hardware refresh cycles and vendor lock-in
-- Slow development & deployment velocity
-- Complex and slow disaster recovery
+## Functional Requirements & Implementation
 
-This migration blueprint shows how organisations can modernise safely while preserving analytics continuity and data trust.
+The pipeline meets all specified requirements:
 
-## 🧱 High-Level Architecture
+| Requirement | Description | Implementation |
+|-------------|-------------|----------------|
+| Pipeline Input | Ingest/process up to 1000 CSVs per run | S3 bucket with `Stocks/` folder; Airflow DAG handles batch processing |
+| Pipeline Output | Store in single PostgreSQL table | RDS table `historical_stocks_data`; Loaded via `insert_query.sql` |
+| Monitoring | Email success/failure notifications | SNS topic with subscriptions (personal + edsa.predicts@explore-ai.net); Subject lines: `FirstName_Surname_Pipeline_Success/Failure` |
+| Automation | Event-driven on S3 file change | Monitored S3 bucket triggers Lambda on `.SUCCESS` file upload, which invokes Airflow DAG |
+| Scaling | No assumptions needed | Single EC2 instance; No concurrency handling |
 
-```mermaid
-flowchart LR
-    A[On-Prem Data Warehouse] --> B[Data Extraction Layer]
-    B --> C[Validation & Cleansing]
-    C --> D[Secure Transfer]
-    D --> E[Cloud Storage Staging]
-    E --> F[Cloud Data Warehouse]
-    F --> G[Analytics & Applications]
+## Architecture Diagram
+
+![Pipeline Architecture](https://example.com/placeholder-pipeline-diagram.png)  
+*(Placeholder for Figure 1 from instructions. Create using tools like draw.io or Lucidchart based on Figures 1-5 descriptions: S3 → Lambda → Airflow/EC2 → Processing → RDS → SNS.)*
+
+The pipeline layers include:
+- **Security**: Custom security group, IAM role with S3/RDS/SNS full access.
+- **Data Source**: Downloaded stock CSVs (7192 files) from Google Drive link, uploaded to S3 `Stocks/`.
+- **Data Storage**: S3 source bucket with folders (`CompanyNames/`, `Output/`, `Scripts/`, `Stocks/`); RDS PostgreSQL.
+- **Resources**: EC2 t2.medium with EDSA Airflow AMI (ID: ami-05f67f34b041e3b67).
+- **Data Activities**: Python processing script (`process_stock_data.py`) from starter notebook; SQL insert script.
+- **Data Communication**: SNS for alerts.
+- **Automation**: Lambda layer with awscli; Triggered on monitored S3 bucket.
+
+## Repository Structure
+
+```
+.
+├── dags/                        
+│   └── stock_etl_dag.py          # Airflow DAG script for orchestration
+├── scripts/                     
+│   ├── process_stock_data.py     # Python script for data transformation (converted from starter notebook)
+│   ├── insert_query.sql          # SQL script for loading data into RDS
+│   ├── mount_and_process.sh      # Bash script to mount S3 and run processing
+│   └── top_companies.txt         # List of top companies (uploaded to S3)
+├── lambda/                      
+│   └── trigger_pipeline.py       # Lambda function code to invoke Airflow
+├── docker/                      
+│   ├── Dockerfile                # Custom Docker image for Airflow
+│   └── docker-compose.yml        # Local testing setup
+├── docs/                        
+│   ├── architecture.drawio       # Editable diagram file (draw.io)
+│   └── setup-guide.md            # Detailed setup notes
+├── submission/                  
+│   └── resource_details.csv      # CSV for marking (Name, Surname, Buckets, SNS, IP)
+├── .gitignore                   
+└── README.md                    # This file
 ```
 
-## 🏗️ Migration Strategy
+## Setup & Configuration Guide
 
-Phased, risk-controlled approach with parallel running where possible.
+### Part I: Configure Pipeline Layers
 
-```mermaid
-flowchart TB
-    A[Legacy Systems]
-    A --> B[Schema Analysis]
-    A --> C[Dependency Mapping]
+1. **Security**:
+   - Create security group with inbound rules for PostgreSQL (5432) from My IP and self, SSH from My IP.
+   - Outbound: All traffic.
+   - IAM Role for EC2: Attach `AmazonS3FullAccess`, `AmazonRDSDataFullAccess`, `AmazonSNSFullAccess`. Trust: ec2/rds.
 
-    B --> D[Migration Planning]
-    C --> D
+2. **Data Source**:
+   - Download stock dataset from [provided Google Drive link](https://example.com/stock-dataset) (placeholder; search for "stock market data 1000 companies 10 years CSV").
+   - Unzip to 7192 CSVs.
+   - Upload `top_companies.txt` to S3 `CompanyNames/`.
 
-    D --> E[Batch Data Transfer]
-    E --> F[Cloud Warehouse Load]
+3. **Data Storage**:
+   - Create source S3 bucket: `de-mbd-predict-{firstname}-{lastname}-s3-source`.
+   - Folders: `CompanyNames/`, `Output/`, `Scripts/`, `Stocks/`.
+   - Upload CSVs to `Stocks/` (use AWS CLI for efficiency).
+   - RDS: PostgreSQL 14.6, db.t3.micro, 20GB, public access, default VPC, custom security group.
 
-    F --> G[Validation Checks]
-    G --> H[Application Cutover]
-```
+4. **EC2 Instance**:
+   - AMI: edsa-airflow-ami (ID: ami-05f67f34b041e3b67).
+   - Type: t2.medium, 30GB storage.
+   - Key pair: Save `.pem` securely.
+   - SSH connect, install Anaconda, Pandas, AWS CLI; Configure credentials.
+   - Optional: Assign Elastic IP for static access.
 
-### Migration Phases
+5. **Mount S3**:
+   - Install S3FS-Fuse on EC2.
+   - Mount command: `s3fs -o iam_role=<role> -o url="https://s3.eu-west-1.amazonaws.com" -o endpoint=eu-west-1 -o allow_other <bucket> ~/s3-drive`.
 
-1. **Discovery & Assessment**  
-   - Data asset inventory  
-   - Schema & data profiling  
-   - Volume & growth estimation  
-   - Dependency & lineage mapping  
-   - Risk & impact assessment  
+6. **Data Processing**:
+   - Convert starter notebook (from [here](https://example.com/starter-notebook)) to `process_stock_data.py`.
+   - Output: `historical_stock_data.csv` in `Output/`.
+   - Create bash script `mount_and_process.sh`.
+   - Test locally, then on EC2.
 
-2. **Planning & Architecture Design**  
-   - Cloud platform & service selection  
-   - Storage tiering and compute sizing  
-   - Schema conversion / replication strategy  
-   - Security, IAM, and compliance alignment  
+7. **Database Table**:
+   - Use pgAdmin (v5.5) to connect to RDS.
+   - Create table `historical_stocks_data` with VARCHAR(56) fields (all nullable).
+   - Create `insert_query.sql` for data loading.
 
-3. **Data Migration Execution**  
-   - Batch extraction from source systems  
-   - Encrypted, reliable transfer to cloud object storage  
-   - Incremental / full loading into target warehouse  
+8. **SNS**:
+   - Topic: `de-mbd-predict-{First-name}-{Surname}-SNS`.
+   - Subscriptions: Personal email + `edsa.predicts@explore-ai.net`.
 
-4. **Validation & Testing**  
-   - Row count & checksum reconciliation  
-   - Schema & data type consistency  
-   - Statistical & business rule validation  
-   - End-to-end performance benchmarking  
+### Part II: Pipeline Assembly
 
-5. **Cutover & Optimization**  
-   - Gradual workload shift (strangler pattern)  
-   - Real-time monitoring & alerting  
-   - Query & cost optimization  
-   - Documentation & knowledge transfer  
+- Use Docker + Airflow on EC2 to build DAG.
+- DAG tasks: Mount S3, process data, load to RDS, send SNS notification.
+- Manual trigger for testing; Check Airflow UI logs and RDS table.
 
-## 🔐 Security & Compliance
+### Part III: Pipeline Automation
 
-```mermaid
-flowchart LR
-    A[On-Prem Data] --> B[Encrypted Transfer]
-    B --> C[Secure Cloud Storage]
-    C --> D[Access-Controlled Warehouse]
-```
+1. **Monitored Bucket**:
+   - Name: `de-mbd-predict-{firstname}-{lastname}-monitored-bucket`.
+   - Disable public block; Attach provided policy for marking.
 
-Key controls implemented:
+2. **Lambda**:
+   - Create function to trigger Airflow DAG.
+   - Add layer for awscli.
+   - Trigger: S3 `ObjectCreated` on `*.SUCCESS`.
+   - Study and customize provided Lambda code.
 
-- End-to-end encryption (in-transit & at-rest)
-- Least-privilege IAM roles & policies
-- Federated / identity-based authentication
-- Comprehensive audit logging & monitoring
+### Submission
+- Submit `resource_details.csv`:
+  ```
+  Name,Surname,Source_bucket,Monitored_bucket,SNS_topic,Static_IP
+  YourName,YourSurname,de-mbd-predict-...,de-mbd-predict-...,de-mbd-predict-...,xx.xx.xx.xx
+  ```
+- Stop (don't terminate) EC2 after completion.
 
-## 📊 Data Validation Framework
+### Part V: Clean-Up
+- Delete: Lambda, S3 buckets, RDS, EC2, SNS, Airflow resources.
 
-```mermaid
-flowchart TB
-    A[Source Data] --> B[Row Count Check]
-    A --> C[Schema Match Check]
-    A --> D[Data Quality Validation]
+## Potential Pitfalls & Cost Traps
+- **Security**: Restrict PostgreSQL to My IP post-testing.
+- **Costs**: Monitor Lambda/EC2/RDS; Use free tier; Stop instances.
+- **Debugging**: Check CloudWatch, Airflow logs, SNS delays (5 mins).
 
-    B --> E[Migration Approved]
-    C --> E
-    D --> E
-```
+## MCQs
+- Complete on Athena: Data Pipeline MCQ, Python Processing MCQ.
 
-Validation dimensions:
+## License & Acknowledgments
+© Explore Data Science Academy. For educational purposes.  
+Built using AWS best practices and Airflow documentation.  
 
-- Row counts & aggregate sums match
-- Null rates, uniqueness, and range checks
-- Duplicate & anomaly detection
-- Schema compatibility & type mapping
-- Statistical sampling & spot-check verification
-
-## 🧠 Core Technologies
-
-| Layer              | Tools / Technologies                     |
-|--------------------|------------------------------------------|
-| Source Systems     | On-prem relational/analytical databases |
-| Migration Layer    | ETL batch pipelines, custom scripts  |
-| Cloud Storage      | AWS S3                |
-| Data Warehouse     | Snowflake|
-| Validation         | SQL queries, dbt tests, custom frameworks|
-| Monitoring         | Cloud-native logging & observability     |
-
-## 📈 Business Benefits Realised
-
-- Elastic scaling for seasonal / growing workloads
-- Significant reduction in infrastructure OpEx
-- 2–10× faster analytical query performance
-- On-demand compute → pay-for-what-you-use model
-- Modern, API-first data platform
-- Enhanced reliability and geo-redundancy
-
-## ⚠️ Key Risks & Mitigations
-
-| Risk               | Mitigation Strategy                      |
-|--------------------|------------------------------------------|
-| Data loss          | Multi-stage reconciliation & validation  |
-| Extended downtime  | Phased / parallel cutover                |
-| Schema mismatches  | Automated schema diff & replication      |
-| Performance regression | Pre- & post-migration benchmarking + tuning |
-| Security exposure  | Encryption + strict access controls      |
-
-## 📂 Overall Data Flow
-
-```mermaid
-flowchart LR
-    A[Operational Databases] --> B[On-Prem Warehouse]
-    B --> C[Extraction Scripts / ETL]
-    C --> D[Cloud Object Storage]
-    D --> E[Cloud Data Warehouse]
-    E --> F[BI Dashboards / ML / Apps]
-```
-
-## 👤 Author
-
-**Asimiyu Musa**  
-Data Engineer | Data Platform Architect | Analytics Consultant
-
-Portfolio: [https://asimiyu-musa.github.io/project-portfolio/](https://asimiyu-musa.github.io/project-portfolio/)
-
-Let me know if you'd like adjustments (e.g. more emphasis on a specific cloud provider, code snippets, or links to artefacts)! 🚀
-
-
+If you have questions, check AWS docs or EDSA forums. Star the repo if useful! ⭐
